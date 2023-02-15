@@ -1,116 +1,112 @@
-# Create a JavaScript Action
+# find-latest-tag
 
 <p align="center">
-  <a href="https://github.com/actions/javascript-action/actions"><img alt="javscript-action status" src="https://github.com/actions/javascript-action/workflows/units-test/badge.svg"></a>
+  <a href="https://github.com/kula-app/find-latest-tag/actions"><img alt="javscript-action status" src="https://github.com/kula-app/find-latest-tag/workflows/units-test/badge.svg"></a>
 </p>
 
-Use this template to bootstrap the creation of a JavaScript action.:rocket:
-
-This template includes tests, linting, a validation workflow, publishing, and versioning guidance.
-
-If you are new, there's also a simpler introduction.  See the [Hello World JavaScript Action](https://github.com/actions/hello-world-javascript-action)
-
-## Create an action from this template
-
-Click the `Use this Template` and provide the new repo details for your action
-
-## Code in Main
-
-Install the dependencies
-
-```bash
-npm install
-```
-
-Run the tests :heavy_check_mark:
-
-```bash
-$ npm test
-
- PASS  ./index.test.js
-  ✓ throws invalid number (3ms)
-  ✓ wait 500 ms (504ms)
-  ✓ test runs (95ms)
-...
-```
-
-## Change action.yml
-
-The action.yml defines the inputs and output for your action.
-
-Update the action.yml with your name, description, inputs and outputs for your action.
-
-See the [documentation](https://help.github.com/en/articles/metadata-syntax-for-github-actions)
-
-## Change the Code
-
-Most toolkit and CI/CD operations involve async operations so the action is run in an async function.
-
-```javascript
-const core = require('@actions/core');
-...
-
-async function run() {
-  try {
-      ...
-  }
-  catch (error) {
-    core.setFailed(error.message);
-  }
-}
-
-run()
-```
-
-See the [toolkit documentation](https://github.com/actions/toolkit/blob/master/README.md#packages) for the various packages.
-
-## Package for distribution
-
-GitHub Actions will run the entry point from the action.yml. Packaging assembles the code into one file that can be checked in to Git, enabling fast and reliable execution and preventing the need to check in node_modules.
-
-Actions are run from GitHub repos.  Packaging the action will create a packaged action in the dist folder.
-
-Run prepare
-
-```bash
-npm run prepare
-```
-
-Since the packaged index.js is run from the dist folder.
-
-```bash
-git add dist
-```
-
-## Create a release branch
-
-Users shouldn't consume the action from master since that would be latest code and actions can break compatibility between major versions.
-
-Checkin to the v1 release branch
-
-```bash
-git checkout -b v1
-git commit -a -m "v1 release"
-```
-
-```bash
-git push origin v1
-```
-
-Note: We recommend using the `--license` option for ncc, which will create a license file for all of the production node modules used in your project.
-
-Your action is now published! :rocket:
-
-See the [versioning documentation](https://github.com/actions/toolkit/blob/master/docs/action-versioning.md)
+[GitHub Action][] to **find the latest tag in a GitHub repository**
 
 ## Usage
 
 You can now consume the action by referencing the v1 branch
 
 ```yaml
-uses: actions/javascript-action@v1
-with:
-  milliseconds: 1000
+steps:
+  - uses: kula-app/find-latest-tag@v1
+    with:
+      repository: octokit/rest.js # The repository to scan.
+      releases-only: true # We know that all relevant tags have a GitHub release for them.
+    id: octokit # The step ID to refer to later.
+
+  - run: echo "Octokit is at version ${{ steps.octokit.outputs.tag }}"
+
+  - uses: actions/checkout@v3
+    with:
+      repository: octokit/rest.js # Download that repository.
+      ref: ${{ steps.octokit.outputs.tag }} # At the latest released version, found earlier.
 ```
 
-See the [actions tab](https://github.com/actions/javascript-action/actions) for runs of this action! :rocket:
+## Usage
+
+### Inputs
+
+- **`repository: username/reponame`**
+
+  **Required.** Name of a repository on GitHub, with owner; this refers to https://github.com/username/reponame.git.
+
+- **`releases-only: true`**
+
+  Consider only tags that have an associated release.
+
+- **`releases-only: false`** (default)
+
+  Consider all tags.
+
+- **`prefix: 'someprefix-'`**
+
+  Consider only tags starting with this string prefix, like "someprefix-1.2.3". The prefix will **not** be excluded from the result.
+
+- **`regex: 'regex pattern'`**
+
+  Consider only tags that match the specified regular expression pattern (not anchored).
+  For example, `regex: '^\d+\.\d+\.\d+$'` matches tags such as `1.2.3` etc.
+
+- **`sort-tags: true`** (default)
+
+  Look through all tags to find the one with the [greatest (semver-like) version](#version-precedence).
+
+- **`sort-tags: false`** (default for `releases-only: true`)
+
+  Return the first tag reported by GitHub. It's safe to rely on this being the **most recently created** release only for `releases-only: false`. When looking at tags, the behavior is undefined.
+
+- **`token: ${{ secrets.PERSONAL_TOKEN }}`**
+
+  Required for scanning tags of **other private repositories** (referred to as _destination_ repo), because the default `GITHUB_TOKEN` only gives access to the repository that's _running_ the action (and public ones).
+
+  Then a user that has access to the destination repository needs to [create](https://github.com/settings/tokens/new) a [personal access token](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token) with `repo` access, and that token's value should be [added as a repository secret](https://docs.github.com/en/actions/reference/encrypted-secrets#creating-encrypted-secrets-for-a-repository) to the _running_ repository under the name "`PERSONAL_TOKEN`".
+
+  See also: [Example](https://github.com/oprypin/find-latest-tag/blob/85ce4ccf033896cde4cd274773bacb49758cca11/.github/workflows/release.yml#L26-L31), [Security considerations](https://docs.github.com/en/actions/learn-github-actions/security-hardening-for-github-actions#considering-cross-repository-access).
+
+### Outputs
+
+- **`tag`** (`${{ steps.some_step_id.outputs.tag }}`)
+
+  The tag that was found is made available as the step's output.
+
+### Errors
+
+The action exits with an error if:
+
+- the `repository` input is invalid;
+- any HTTP error happens;
+  - the repository doesn't exist;
+  - the repository isn't public;
+- no tags (or releases, if that's what chosen) are found;
+- none of the tags match the `prefix`.
+
+## Version precedence
+
+The action looks at tags in [natural sort order][] (i.e. lexicographic with the consideration of multi-digit numbers), with a special exception for "pre-release identifiers" (letters that immediately follow a number).
+
+Example in ascending order:
+
+- `v1.3` (goes first just because others don't have the "v")
+- `1.1.2` (lowest minor version)
+- `1.2rc1` (precedes the following as a "release candidate" of 1.2)
+- `1.2` (actual release)
+- `1.2.1` (patch release)
+- `1.11` (much later version; `11 > 2` even if `'1' < '2'`)
+
+(and so `1.11` would be chosen as the "greatest").
+
+This handling is compatible with [SemVer][], but more general.
+
+There is no attempt to isolate the version number from other text that may be part of the tag name. But that's not a problem if the tags have a matching prefix, e.g. `Release-1.2.3` and `Release-1.2.4`. But, `Foo-3.4.5` would precede these just because `'F' < 'R'`.
+
+[github action]: https://github.com/features/actions
+[natural sort order]: https://en.wikipedia.org/wiki/Natural_sort_order
+[semver]: https://semver.org/
+
+## Credits
+
+This action was originally heavily inspired by [oprypin/find-latest-tag](https://github.com/oprypin/find-latest-tag).

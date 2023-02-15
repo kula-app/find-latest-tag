@@ -1,6 +1,89 @@
 require('./sourcemap-register.js');/******/ (() => { // webpackBootstrap
 /******/ 	var __webpack_modules__ = ({
 
+/***/ 819:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+const core = __nccwpck_require__(186);
+const { Octokit } = __nccwpck_require__(785);
+const { cmpTags } = __nccwpck_require__(883);
+
+const octokit = new Octokit({ auth: core.getInput("token") || null });
+
+/**
+ *
+ * @param {string} owner Owner of the repository, e.g. octokit
+ * @param {string} repo Name of the repository, e.g. rest.js
+ * @param {boolean} releasesOnly Only consider release tags
+ * @param {string} prefix  Only consider tags starting with this string
+ * @param {RegExp | undefined} regex Only consider tags matching the regex
+ * @param {boolean} sortTags
+ * @param {string[]} excludes
+ *
+ * @returns {string} Latest tag
+ */
+async function getLatestTag(
+  owner,
+  repo,
+  releasesOnly,
+  prefix,
+  regex,
+  sortTags,
+  excludes
+) {
+  const endpoint = releasesOnly
+    ? octokit.repos.listReleases
+    : octokit.repos.listTags;
+  const pages = endpoint.endpoint.merge({
+    owner: owner,
+    repo: repo,
+    per_page: 100,
+  });
+
+  const tags = [];
+  for await (const item of getItemsFromPages(pages)) {
+    const tag = releasesOnly ? item["tag_name"] : item["name"];
+    if (!tag.startsWith(prefix)) {
+      continue;
+    }
+    if (regex && !new RegExp(regex).test(tag)) {
+      continue;
+    }
+    if (excludes.indexOf(tag) >= 0) {
+      continue;
+    }
+    if (!sortTags) {
+      // Assume that the API returns the most recent tag(s) first.
+      return tag;
+    }
+    tags.push(tag);
+  }
+  if (tags.length === 0) {
+    let error = `The repository "${owner}/${repo}" has no `;
+    error += releasesOnly ? "releases" : "tags";
+    if (prefix) {
+      error += ` matching "${prefix}*"`;
+    }
+    throw error;
+  }
+  tags.sort(cmpTags);
+  const [latestTag] = tags.slice(-1);
+  return latestTag;
+}
+
+async function* getItemsFromPages(pages) {
+  for await (const page of octokit.paginate.iterator(pages)) {
+    for (const item of page.data) {
+      yield item;
+    }
+  }
+}
+
+module.exports = getLatestTag;
+
+
+/***/ }),
+
 /***/ 351:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -2688,19 +2771,18 @@ exports.default = _default;
 
 /***/ }),
 
-/***/ 258:
+/***/ 785:
 /***/ ((module) => {
 
-let wait = function (milliseconds) {
-  return new Promise((resolve) => {
-    if (typeof milliseconds !== 'number') {
-      throw new Error('milliseconds not a number');
-    }
-    setTimeout(() => resolve("done!"), milliseconds)
-  });
-};
+module.exports = eval("require")("@octokit/rest");
 
-module.exports = wait;
+
+/***/ }),
+
+/***/ 883:
+/***/ ((module) => {
+
+module.exports = eval("require")("tag-cmp");
 
 
 /***/ }),
@@ -2835,22 +2917,44 @@ var __webpack_exports__ = {};
 // This entry need to be wrapped in an IIFE because it need to be isolated against other modules in the chunk.
 (() => {
 const core = __nccwpck_require__(186);
-const wait = __nccwpck_require__(258);
+const getLatestTag = __nccwpck_require__(819);
 
-
-// most @actions toolkit packages have async methods
 async function run() {
   try {
-    const ms = core.getInput('milliseconds');
-    core.info(`Waiting ${ms} milliseconds ...`);
+    // -- Read Inputs --
+    const repository = core.getInput("repository", { required: true });
+    const repoParts = repository.split("/");
+    if (repoParts.length !== 2) {
+      throw `Invalid repository "${repository}" (needs to have one slash, i.e. 'owner/repo')`;
+    }
+    const [owner, repo] = repoParts;
 
-    core.debug((new Date()).toTimeString()); // debug is only output if you set the secret `ACTIONS_RUNNER_DEBUG` to true
-    await wait(parseInt(ms));
-    core.info((new Date()).toTimeString());
+    const prefix = core.getInput("prefix") || "";
+    const regex = core.getInput("regex") || null;
 
-    core.setOutput('time', new Date().toTimeString());
+    const releasesOnly = core.getBooleanInput("releases-only");
+
+    // It's somewhat safe to assume that the most recenly created release is actually latest.
+    const sortTagsDefault = releasesOnly ? "false" : "true";
+    const sortTags =
+      (core.getInput("sort-tags") || sortTagsDefault).toLowerCase() === "true";
+    const excludes = (core.getInput("excludes") || "").split(",");
+
+    // -- Perform Task --
+    const tag = await getLatestTag(
+      owner,
+      repo,
+      releasesOnly,
+      prefix,
+      regex,
+      sortTags,
+      excludes
+    );
+
+    // -- Write Outputs --
+    core.setOutput("tag", tag);
   } catch (error) {
-    core.setFailed(error.message);
+    core.setFailed(error);
   }
 }
 
